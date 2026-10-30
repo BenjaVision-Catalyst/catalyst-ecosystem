@@ -3,7 +3,15 @@
 CatalystEcosystem owns ecosystem behaviour over the shared CatalystSimulation
 kernel: species/habitat definitions, resource dynamics, predation, reproduction,
 disease and ecosystem model composition. The workspace checkout is
-`Ecosystems/catalyst-ecosystem`. Implementation is planned.
+`Ecosystems/catalyst-ecosystem`. It is the first domain simulation planned over
+the P3 Simulation service. NPC and automation simulations are separate, deferred
+work and are not dependencies of this ecosystem implementation.
+
+The ecosystem will run over a landform built with CatalystLandform. Landform is
+in progress and not ready for integration; agree its usable data, coordinate and
+revision contract before implementing the binding. CatalystLandform owns the
+landform, CatalystEcosystem owns ecological behaviour, and CatalystSimulation
+provides execution and acceptance. Implementation has not started.
 
 ## Behaviour and execution
 
