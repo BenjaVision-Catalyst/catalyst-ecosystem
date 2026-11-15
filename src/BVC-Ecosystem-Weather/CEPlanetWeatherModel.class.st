@@ -35,34 +35,38 @@ CEPlanetWeatherModel >> basisAt: phase latitude: latitude [
 
 { #category : 'planet weather' }
 CEPlanetWeatherModel >> build [
-	| s slope rain heat dust outputs definition |
+	| s slope rain heat dust outputs definition pressure |
 	s := self initialState.
 	0 to: 7 do: [ :i | self regional: i state: s ].
+	0 to: 3 do: [ :i | self event: i state: s ].
+	s at: #wind put: (self windFromPressure: s).
 	slope := self
 			max: (self c: 0)
 			b: (self
 					sub: (self c: 0)
 					b: (self dot: (self normalized: (s at: #wind)) with: (s at: #normal))).
-	s
-		at: #rain
-		put: (self
-				mul: (s at: #rain)
-				b: (self add: (self c: 1) b: (self mul: slope b: (self c: 3)))).
-	0 to: 3 do: [ :i | self event: i state: s ].
-	rain := self min: (self c: 100) b: (s at: #rain).
+	rain := self
+			min: (self c: 100)
+			b: (self
+					mul: (s at: #rain)
+					b: (self add: (self c: 1) b: (self mul: slope b: (self c: 3)))).
 	heat := self sub: (s at: #heat) b: (self mul: rain b: (self c: 0.08)).
 	dust := self
 			mul: (s at: #dust)
 			b: (self sub: (self c: 1) b: (self smooth: (self div: rain b: (self c: 5)))).
+	pressure := self
+			mul: (self uniform: 13)
+			b: (self add: (self c: 1) b: (self div: (s at: #pressure) b: (self c: 1013.25))).
 	outputs := {heat} , (s at: #wind)
 			, {rain.
 					dust.
-					s at: #cloud}.
+					s at: #cloud.
+					pressure}.
 	definition := self finish: outputs.
 	definition
 		at: 'channels'
-			put: #('temperatureC' 'windX' 'windY' 'windZ' 'rainMmHour' 'dust' 'cloud');
-		at: 'domain' put: 'planetary-weather-1'.
+			put: #('temperatureC' 'windX' 'windY' 'windZ' 'rainMmHour' 'dust' 'cloud' 'pressureHpa');
+		at: 'domain' put: 'planetary-weather-2'.
 	^ definition
 ]
 
@@ -122,10 +126,20 @@ CEPlanetWeatherModel >> event: i state: s [
 	contribution := self
 			vector: (self scaled: contribution by: factor)
 			plus: (self scaled: p by: (self mul: factor b: (self c: 0.2))).
-	contribution := self
-			vector: contribution
-			plus: (self scaled: inflow by: (self mul: parent b: (self c: 6))).
-	s at: #wind put: (self vector: (s at: #wind) plus: contribution).
+	s at: #vortexWind put: (self vector: (s at: #vortexWind) plus: contribution).
+	self
+		pressureAt: center
+		amplitude: (self
+				mul: life
+				b: (self
+						sub: (self c: 0)
+						b: (self add: (self c: 4) b: (self mul: velocity b: (self c: 0.15)))))
+		threshold: (self
+				max: (self c: 0.2)
+				b: (self
+						sub: (self c: 1)
+						b: (self mul: (self sub: (self c: 1) b: size) b: (self c: 12))))
+		state: s.
 	stormWet := self uniform: base + 5.
 	contribution := self mul: (self mul: parent b: stormWet) b: (self c: 30).
 	s at: #rain put: (self add: (s at: #rain) b: contribution).
@@ -135,7 +149,7 @@ CEPlanetWeatherModel >> event: i state: s [
 
 { #category : 'planet weather' }
 CEPlanetWeatherModel >> initialState [
-	| s p pole u v t lat band wind phase solar daily heat |
+	| s p pole u v t lat band tangent amplitude phase solar daily heat |
 	s := Dictionary new.
 	p := #(0 1 2) collect: [ :i | self input: i ].
 	pole := #(3 4 5) collect: [ :i | self uniform: i ].
@@ -143,12 +157,11 @@ CEPlanetWeatherModel >> initialState [
 	v := #(9 10 11) collect: [ :i | self uniform: i ].
 	t := self time.
 	lat := self dot: p with: pole.
-	band := self
-			sub: (self mul: (self c: 3) b: (self mul: lat b: lat))
-			b: (self c: 1).
-	wind := self
-			scaled: (self cross: pole with: p)
-			by: (self mul: band b: (self uniform: 12)).
+	band := self sub: (self mul: lat b: lat) b: (self c: 0.3333).
+	amplitude := self mul: (self uniform: 12) b: (self c: 3).
+	tangent := self
+			vector: pole
+			plus: (self scaled: p by: (self sub: (self c: 0) b: lat)).
 	phase := self div: t b: (self max: (self c: 60) b: (self uniform: 1)).
 	solar := self
 			vector: (self scaled: u by: (self sine: (self add: phase b: (self c: 0.25))))
@@ -168,7 +181,16 @@ CEPlanetWeatherModel >> initialState [
 		at: #strength put: (self uniform: 0);
 		at: #flow put: (self div: t b: (self max: (self c: 60) b: (self uniform: 2)));
 		at: #normal put: (#(7 8 9) collect: [ :i | self input: i ]);
-		at: #wind put: wind;
+		at: #pressure
+			put: (self mul: (self sub: (self c: 0) b: amplitude) b: (self mul: band b: band));
+		at: #pressureGradient
+			put: (self
+					scaled: tangent
+					by: (self mul: (self mul: amplitude b: (self c: -4)) b: (self mul: lat b: band)));
+		at: #vortexWind
+			put: {self c: 0.
+					self c: 0.
+					self c: 0};
 		at: #heat put: heat;
 		at: #rain put: (self c: 0);
 		at: #cloud put: (self c: 0);
@@ -177,8 +199,38 @@ CEPlanetWeatherModel >> initialState [
 ]
 
 { #category : 'planet weather' }
+CEPlanetWeatherModel >> pressureAt: center amplitude: amplitude threshold: threshold state: s [
+	| p d q weight slope tangent derivative |
+	p := s at: #p.
+	d := self dot: p with: center.
+	q := self
+			min: (self c: 1)
+			b: (self
+					max: (self c: 0)
+					b: (self
+							div: (self sub: d b: threshold)
+							b: (self max: (self c: 0.0001) b: (self sub: (self c: 1) b: threshold)))).
+	weight := self smooth: q.
+	slope := self mul: (self mul: (self c: 6) b: q) b: (self sub: (self c: 1) b: q).
+	tangent := self
+			vector: center
+			plus: (self scaled: p by: (self sub: (self c: 0) b: d)).
+	derivative := self
+			div: (self mul: amplitude b: slope)
+			b: (self max: (self c: 0.0001) b: (self sub: (self c: 1) b: threshold)).
+	s
+		at: #pressure
+		put: (self add: (s at: #pressure) b: (self mul: amplitude b: weight)).
+	s
+		at: #pressureGradient
+		put: (self
+				vector: (s at: #pressureGradient)
+				plus: (self scaled: tangent by: derivative))
+]
+
+{ #category : 'planet weather' }
 CEPlanetWeatherModel >> regional: i state: s [
-	| p t latitude sign turn center upstream weight carried wet regime force gradient cyclone sampleWet pathWet sourceDust wetness downwind lee contribution |
+	| p t latitude sign turn center upstream weight carried wet regime force sampleWet pathWet sourceDust wetness downwind lee contribution |
 	p := s at: #p.
 	t := s at: #time.
 	latitude := self c: (i - 3.5) / 4.8.
@@ -227,26 +279,24 @@ CEPlanetWeatherModel >> regional: i state: s [
 									period: 7200
 									stream: i * 8 + 101)
 							b: (self c: 0.5))).
-	gradient := self direction: p toward: center.
-	cyclone := self cross: p with: gradient.
 	force := self
-			mul: (self mul: weight b: (s at: #strength))
-			b: (self add: (self c: 2) b: (self mul: regime b: (self c: 7))).
-	cyclone := self
-			scaled: cyclone
-			by: (self c: (i even ifTrue: [ 0.7 ] ifFalse: [ -0.7 ])).
-	s
-		at: #wind
-		put: (self
-				vector: (s at: #wind)
-				plus: (self scaled: (self vector: gradient plus: cyclone) by: force)).
+			mul: (s at: #strength)
+			b: (self add: (self c: 6) b: (self mul: regime b: (self c: 14))).
+	force := self mul: force b: (self c: (i even ifTrue: [ -1 ] ifFalse: [ 1 ])).
+	self
+		pressureAt: center
+		amplitude: force
+		threshold: (self c: 0.65)
+		state: s.
 	downwind := self
 			max: (self c: 0)
 			b: (self sub: (self table: 6 at: upstream) b: (self input: 6)).
 	lee := self
 			sub: (self c: 1)
 			b: (self smooth: (self mul: downwind b: (self c: 0.8))).
-	contribution := self mul: weight b: regime.
+	contribution := self
+			mul: (self mul: weight b: regime)
+			b: (self c: (i even ifTrue: [ 1 ] ifFalse: [ 0.05 ])).
 	contribution := self
 			mul: contribution
 			b: (self max: (self c: 0) b: (self sub: wet b: (self c: 0.3))).
@@ -254,7 +304,13 @@ CEPlanetWeatherModel >> regional: i state: s [
 			mul: contribution
 			b: (self mul: (s at: #strength) b: (self c: 24)).
 	s at: #rain put: (self add: (s at: #rain) b: (self mul: contribution b: lee)).
-	s at: #cloud put: (self max: (s at: #cloud) b: (self mul: weight b: wet)).
+	s
+		at: #cloud
+		put: (self
+				max: (s at: #cloud)
+				b: (self
+						mul: (self mul: weight b: wet)
+						b: (self c: (i even ifTrue: [ 1 ] ifFalse: [ 0.3 ])))).
 	sourceDust := self max: (self c: 0) b: (self sub: (self c: 0.5) b: sampleWet).
 	contribution := self
 			mul: (self mul: weight b: sourceDust)
@@ -281,4 +337,33 @@ CEPlanetWeatherModel >> weight: position center: center threshold: threshold [
 		smooth: (self
 				div: (self sub: d b: threshold)
 				b: (self max: (self c: 0.0001) b: (self sub: (self c: 1) b: threshold)))
+]
+
+{ #category : 'planet weather' }
+CEPlanetWeatherModel >> windFromPressure: s [
+	| p g lat hemisphere rotation inflow wind magnitude divisor peak |
+	p := s at: #p.
+	g := s at: #pressureGradient.
+	lat := self dot: p with: (s at: #pole).
+	hemisphere := self
+			div: lat
+			b: (self root: (self add: (self mul: lat b: lat) b: (self c: 0.04))).
+	rotation := self scaled: (self cross: p with: g) by: hemisphere.
+	inflow := self scaled: g by: (self c: -0.2).
+	wind := self
+			scaled: (self vector: rotation plus: inflow)
+			by: (self uniform: 14).
+	peak := self c: 1.
+	wind
+		do: [ :component | 
+			peak := self
+					max: peak
+					b: (self max: component b: (self sub: (self c: 0) b: component)) ].
+	divisor := self max: (self c: 1) b: (self div: peak b: (self c: 80)).
+	wind := self scaled: wind by: (self div: (self c: 1) b: divisor).
+	magnitude := self root: (self max: (self c: 0) b: (self dot: wind with: wind)).
+	divisor := self max: (self c: 1) b: (self div: magnitude b: (self c: 80)).
+	^ self
+		vector: (self scaled: wind by: (self div: (self c: 1) b: divisor))
+		plus: (s at: #vortexWind)
 ]

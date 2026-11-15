@@ -49,9 +49,9 @@ and [implementation plan](https://github.com/BenjaVisionPro/catalyst-workspace/b
 `BVC-Ecosystem-Weather` defines `CEPlanetWeatherModel`, a deterministic analytic
 field model authored through GT. Load with `BaselineOfCatalystEcosystem` (Core or
 Tests); it requires Simulator's optional `Fields` group. The eight regional
-systems share planetary circulation, upstream geography and bounded authored
-storm/vortex events. Temperature, canonical wind, rain, dust and cloud fraction
-are outputs. No creature behaviour or presentation assets enter the model.
+high/low pressure systems share planetary circulation, upstream geography and
+bounded authored storm/vortex events. Temperature, canonical wind, rain, dust,
+cloud fraction and reference-datum pressure are outputs. No creature behaviour or presentation assets enter the model.
 
 The fixed-point DAG is exported by `CEPlanetWeatherModel definition`. Native UE
 runs those same bytes through the generic Simulator field interpreter. GT's
@@ -66,3 +66,13 @@ and simulation time. Production Runtime/GemStone acceptance, durable terrain/inp
 journals, replication, event commands and detailed hazard/rendering integrations
 remain open. This low-cost slice is intended to be measured and extended only
 where believable weather requires more computation.
+
+
+The current domain profile is `planetary-weather-2` over `analytic-field-1`.
+Pressure kernels supply their own analytic tangent gradients. Wind follows those
+gradients with continuous hemisphere-dependent turning and inflow/outflow; no
+Coriolis division becomes singular at the equator. Six GT tests cover replay,
+forecast, dry supply, lifecycle, pressure-reference/response, hemisphere and
+high/low circulation, plus bounded extreme forcing. The scalar graph remains
+bounded at 1934 nodes. These rules are an analytic game approximation, not a
+conserved atmospheric solver. Older v1 bundles remain frozen reference artifacts.

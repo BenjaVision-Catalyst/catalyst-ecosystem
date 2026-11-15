@@ -59,6 +59,7 @@ CEPlanetWeatherTests class >> exportVectorsTo: directory [
 									curves: curves);
 						yourself) ].
 	model := CEPlanetWeatherModel definition.
+	(directory / 'program.json') ensureDelete.
 	directory / 'program.json'
 		writeStreamDo: [ :s | s nextPutAll: (STONJSON toString: model) ].
 	result := Dictionary new
@@ -69,6 +70,7 @@ CEPlanetWeatherTests class >> exportVectorsTo: directory [
 			at: 'cases' put: cases asArray;
 			yourself.
 	file := directory / 'vectors.json'.
+	file ensureDelete.
 	file writeStreamDo: [ :s | s nextPutAll: (STONJSON toString: result) ].
 	^ cases size * inputs size
 ]
@@ -84,7 +86,9 @@ CEPlanetWeatherTests class >> fixture [
 		at: 6 put: 10000;
 		at: 7 put: 10000;
 		at: 11 put: 10000;
-		at: 13 put: 60000.
+		at: 13 put: 60000;
+		at: 14 put: 10132500;
+		at: 15 put: 6000.
 	points := #(#(10000 0 0 220000 7000 0 0 10000 0 0 7000 220000 4000) #(0 10000 0 220000 7000 0 0 0 10000 0 7000 220000 4000) #(0 0 10000 -200000 3000 0 0 0 0 10000 3000 -200000 0) #(-10000 0 0 220000 1000 0 0 -10000 0 0 1000 220000 0) #(0 -10000 0 220000 7000 10000 0 0 -10000 0 7000 220000 10000) #(0 0 -10000 -200000 3000 0 0 0 0 -10000 3000 -200000 0)).
 	p := CSAnalyticFieldProgram from: CEPlanetWeatherModel definition.
 	curve := p buildCurve: #(#(10000 0 0) #(7071 7071 0) #(0 10000 0)).
@@ -170,6 +174,131 @@ CEPlanetWeatherTests >> testDryPlanetAndMoistureSupply [
 			curves: #().
 	self assert: (a allSatisfy: [ :r | r fifth = 0 ]).
 	self assert: (b anySatisfy: [ :r | r fifth > 0 ])
+]
+
+{ #category : 'pressure conformance' }
+CEPlanetWeatherTests >> testExtremePressureInputsStayBounded [
+	| f u curves row p result |
+	f := self class fixture.
+	u := (f at: 'uniforms') copy.
+	p := f at: 'program'.
+	u
+		at: 1 put: 30000;
+		at: 15 put: 50000.
+	curves := Array new: 4 withAll: (Array new: 129 withAll: #(7071 0 7071)).
+	0
+		to: 3
+		do: [ :i | 
+			| base |
+			base := 17 + (i * 8).
+			u
+				at: base put: 10000;
+				at: base + 1 put: 0;
+				at: base + 2 put: 108000000;
+				at: base + 3 put: 1500000;
+				at: base + 4 put: 9999;
+				at: base + 5 put: 10000 ].
+	row := (f at: 'inputs') first copy.
+	row
+		at: 1 put: 7067;
+		at: 2 put: 346;
+		at: 3 put: 7067.
+	result := (p
+			evaluateAt: 5400
+			seed: 1729
+			uniforms: u
+			environment: (f at: 'inputs')
+			inputs: {row}
+			curves: curves) first.
+	self assert: result eighth > 0.
+	self
+		assert: (result at: 2) squared + (result at: 3) squared + (result at: 4) squared
+				<= 810000 squared
+]
+
+{ #category : 'pressure conformance' }
+CEPlanetWeatherTests >> testPressureGradientCirculation [
+	| f u inputs |
+	f := self class fixture.
+	u := f at: 'uniforms'.
+	inputs := f at: 'inputs'.
+	#(-1 1)
+		do: [ :hemisphere | 
+			#(-10 10)
+				do: [ :amplitude | 
+					| b s center definition program row result toward rotation radial |
+					b := CEPlanetWeatherModel new.
+					s := b initialState.
+					s
+						at: #pressure put: (b c: 0);
+						at: #pressureGradient
+							put: {b c: 0.
+									b c: 0.
+									b c: 0}.
+					center := {b c: 0.
+							b c: 0.
+							b c: hemisphere}.
+					b
+						pressureAt: center
+						amplitude: (b c: amplitude)
+						threshold: (b c: 0.65)
+						state: s.
+					definition := b finish: (b windFromPressure: s) , {s at: #pressure}.
+					program := CSAnalyticFieldProgram from: definition.
+					row := inputs first copy.
+					row
+						at: 1 put: 6000;
+						at: 2 put: 0;
+						at: 3 put: 8000 * hemisphere.
+					result := (program
+							evaluateAt: 3600
+							seed: 1729
+							uniforms: u
+							environment: inputs
+							inputs: {row}
+							curves: #()) first.
+					toward := (result at: 1) * -4800 + ((result at: 3) * 3600 * hemisphere).
+					rotation := (result at: 2) * hemisphere.
+					radial := (result at: 1) * 6000 + ((result at: 3) * 8000 * hemisphere).
+					self assert: toward * amplitude < 0.
+					self assert: rotation * amplitude * hemisphere < 0.
+					self assert: radial abs < 20000.
+					self assert: result fourth * amplitude > 0 ] ]
+]
+
+{ #category : 'pressure conformance' }
+CEPlanetWeatherTests >> testPressureReferenceAndResponse [
+	| f p u inputs curves evaluate a b c changed |
+	f := self class fixture.
+	p := f at: 'program'.
+	u := (f at: 'uniforms') copy.
+	inputs := f at: 'inputs'.
+	curves := f at: 'curves'.
+	evaluate := [ p
+			evaluateAt: 3600
+			seed: 1729
+			uniforms: u
+			environment: inputs
+			inputs: inputs
+			curves: curves ].
+	a := evaluate value.
+	u at: 14 put: (u at: 14) * 2.
+	b := evaluate value.
+	1
+		to: a size
+		do: [ :i | 
+			self assert: (((b at: i) at: 8) - (((a at: i) at: 8) * 2)) abs <= 1.
+			self assert: ((a at: i) copyFrom: 1 to: 7) = ((b at: i) copyFrom: 1 to: 7) ].
+	u at: 15 put: (u at: 15) * 2.
+	c := evaluate value.
+	changed := false.
+	1
+		to: a size
+		do: [ :i | 
+			self assert: ((b at: i) at: 8) = ((c at: i) at: 8).
+			changed := changed
+					or: [ ((b at: i) copyFrom: 2 to: 4) ~= ((c at: i) copyFrom: 2 to: 4) ] ].
+	self assert: changed
 ]
 
 { #category : 'weather conformance' }
