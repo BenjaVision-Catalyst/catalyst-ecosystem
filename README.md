@@ -11,7 +11,8 @@ The ecosystem will run over a landform built with CatalystLandform. Landform is
 in progress and not ready for integration; agree its usable data, coordinate and
 revision contract before implementing the binding. CatalystLandform owns the
 landform, CatalystEcosystem owns ecological behaviour, and CatalystSimulation
-provides execution and acceptance. Implementation has not started.
+provides execution and acceptance. The first implemented slice is planetary weather, described below. The broader
+ecological service and production acceptance remain planned.
 
 ## Behaviour and execution
 
@@ -42,3 +43,26 @@ and [implementation plan](https://github.com/BenjaVisionPro/catalyst-workspace/b
 ## License
 
 [MIT](LICENSE).
+
+## Planetary weather
+
+`BVC-Ecosystem-Weather` defines `CEPlanetWeatherModel`, a deterministic analytic
+field model authored through GT. Load with `BaselineOfCatalystEcosystem` (Core or
+Tests); it requires Simulator's optional `Fields` group. The eight regional
+systems share planetary circulation, upstream geography and bounded authored
+storm/vortex events. Temperature, canonical wind, rain, dust and cloud fraction
+are outputs. No creature behaviour or presentation assets enter the model.
+
+The fixed-point DAG is exported by `CEPlanetWeatherModel definition`. Native UE
+runs those same bytes through the generic Simulator field interpreter. GT's
+`CEPlanetWeatherTests` exercises repeatability, forecast equality, dry/moist
+forcing and event fade; `exportVectorsTo:` supplies exact native conformance
+vectors and cubic arc-length paths. Exports are data, not independently authored
+weather implementations.
+
+The analytic preview has no evolving moisture reservoir or conserved transport
+solver. Its complete reproducible state is model/input bytes, seed, event curves
+and simulation time. Production Runtime/GemStone acceptance, durable terrain/input
+journals, replication, event commands and detailed hazard/rendering integrations
+remain open. This low-cost slice is intended to be measured and extended only
+where believable weather requires more computation.
