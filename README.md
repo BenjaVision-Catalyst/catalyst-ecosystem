@@ -68,11 +68,18 @@ remain open. This low-cost slice is intended to be measured and extended only
 where believable weather requires more computation.
 
 
-The current domain profile is `planetary-weather-2` over `analytic-field-1`.
+The current domain profile is `planetary-weather-3` over `analytic-field-1`.
 Pressure kernels supply their own analytic tangent gradients. Wind follows those
 gradients with continuous hemisphere-dependent turning and inflow/outflow; no
-Coriolis division becomes singular at the equator. Six GT tests cover replay,
+Coriolis division becomes singular at the equator. Nine GT tests cover replay,
 forecast, dry supply, lifecycle, pressure-reference/response, hemisphere and
 high/low circulation, plus bounded extreme forcing. The scalar graph remains
-bounded at 1934 nodes. These rules are an analytic game approximation, not a
+bounded at 2075 nodes. These rules are an analytic game approximation, not a
 conserved atmospheric solver. Older v1 bundles remain frozen reference artifacts.
+
+Weather Character is uniform slot 15 (0–1), with global enable in slot 48.
+It increases the smooth seeded regional extreme roll frequency and amplitude,
+as well as ordinary natural strength. Terrain/moisture/biome inputs and explicit
+authored event parameters retain their meaning. Disabled output is static climate
+with reference pressure and no weather contributions. GT tests cover monotone
+extreme windows across four seeds and three days, replay/dry supply, and disable.

@@ -33,9 +33,9 @@ CEPlanetWeatherModel >> basisAt: phase latitude: latitude [
 						plus: (self scaled: v by: (self mul: si b: radial))))
 ]
 
-{ #category : 'planet weather' }
+{ #category : 'building' }
 CEPlanetWeatherModel >> build [
-	| s slope rain heat dust outputs definition pressure |
+	| s slope rain heat dust outputs definition pressure enabled wind cloud |
 	s := self initialState.
 	0 to: 7 do: [ :i | self regional: i state: s ].
 	0 to: 3 do: [ :i | self event: i state: s ].
@@ -54,19 +54,33 @@ CEPlanetWeatherModel >> build [
 	dust := self
 			mul: (s at: #dust)
 			b: (self sub: (self c: 1) b: (self smooth: (self div: rain b: (self c: 5)))).
+	enabled := s at: #enabled.
+	heat := self
+			add: (self input: 3)
+			b: (self mul: enabled b: (self sub: heat b: (self input: 3))).
+	wind := self scaled: (s at: #wind) by: enabled.
+	rain := self mul: rain b: enabled.
+	dust := self
+			mul: (self min: (self c: 1) b: (self max: (self c: 0) b: dust))
+			b: enabled.
+	cloud := self
+			mul: (self min: (self c: 1) b: (self max: (self c: 0) b: (s at: #cloud)))
+			b: enabled.
 	pressure := self
 			mul: (self uniform: 13)
-			b: (self add: (self c: 1) b: (self div: (s at: #pressure) b: (self c: 1013.25))).
-	outputs := {heat} , (s at: #wind)
+			b: (self
+					add: (self c: 1)
+					b: (self div: (self mul: (s at: #pressure) b: enabled) b: (self c: 1013.25))).
+	outputs := {heat} , wind
 			, {rain.
 					dust.
-					s at: #cloud.
+					cloud.
 					pressure}.
 	definition := self finish: outputs.
 	definition
 		at: 'channels'
 			put: #('temperatureC' 'windX' 'windY' 'windZ' 'rainMmHour' 'dust' 'cloud' 'pressureHpa');
-		at: 'domain' put: 'planetary-weather-2'.
+		at: 'domain' put: 'planetary-weather-3'.
 	^ definition
 ]
 
@@ -147,10 +161,34 @@ CEPlanetWeatherModel >> event: i state: s [
 	s at: #heat put: (self sub: (s at: #heat) b: (self mul: parent b: (self c: 3)))
 ]
 
-{ #category : 'planet weather' }
+{ #category : 'building' }
+CEPlanetWeatherModel >> extremeAt: time character: character stream: stream [
+	| square chance roll pulse |
+	square := self mul: character b: character.
+	chance := self add: (self c: 0.01) b: (self mul: square b: (self c: 0.34)).
+	roll := self
+			mul: (self
+					add: (self c: 1)
+					b: (self
+							noise: time
+							period: 10800
+							stream: stream))
+			b: (self c: 0.5).
+	pulse := self
+			smooth: (self
+					div: (self sub: roll b: (self sub: (self c: 1) b: chance))
+					b: (self c: 0.1)).
+	^ self mul: (self mul: square b: (self c: 4)) b: pulse
+]
+
+{ #category : 'building' }
 CEPlanetWeatherModel >> initialState [
-	| s p pole u v t lat band tangent amplitude phase solar daily heat |
+	| s p pole u v t lat band tangent amplitude phase solar daily heat character base |
 	s := Dictionary new.
+	character := self
+			min: (self c: 1)
+			b: (self max: (self c: 0) b: (self uniform: 15)).
+	base := self add: (self c: 0.35) b: (self mul: character b: (self c: 1.3)).
 	p := #(0 1 2) collect: [ :i | self input: i ].
 	pole := #(3 4 5) collect: [ :i | self uniform: i ].
 	u := #(6 7 8) collect: [ :i | self uniform: i ].
@@ -158,7 +196,7 @@ CEPlanetWeatherModel >> initialState [
 	t := self time.
 	lat := self dot: p with: pole.
 	band := self sub: (self mul: lat b: lat) b: (self c: 0.3333).
-	amplitude := self mul: (self uniform: 12) b: (self c: 3).
+	amplitude := self mul: (self mul: (self uniform: 12) b: (self c: 3)) b: base.
 	tangent := self
 			vector: pole
 			plus: (self scaled: p by: (self sub: (self c: 0) b: lat)).
@@ -176,6 +214,10 @@ CEPlanetWeatherModel >> initialState [
 			b: (self mul: (self sub: (self input: 11) b: (self input: 3)) b: (self c: 0.1)).
 	s
 		at: #p put: p;
+		at: #character put: character;
+		at: #characterBase put: base;
+		at: #enabled
+			put: (self min: (self c: 1) b: (self max: (self c: 0) b: (self uniform: 48)));
 		at: #pole put: pole;
 		at: #time put: t;
 		at: #strength put: (self uniform: 0);
@@ -228,11 +270,17 @@ CEPlanetWeatherModel >> pressureAt: center amplitude: amplitude threshold: thres
 				plus: (self scaled: tangent by: derivative))
 ]
 
-{ #category : 'planet weather' }
+{ #category : 'building' }
 CEPlanetWeatherModel >> regional: i state: s [
-	| p t latitude sign turn center upstream weight carried wet regime force sampleWet pathWet sourceDust wetness downwind lee contribution |
+	| p t latitude sign turn center upstream weight carried wet regime force sampleWet pathWet sourceDust wetness downwind lee contribution severity |
 	p := s at: #p.
 	t := s at: #time.
+	severity := self
+			add: (s at: #characterBase)
+			b: (self
+					extremeAt: t
+					character: (s at: #character)
+					stream: i * 8 + 500).
 	latitude := self c: (i - 3.5) / 4.8.
 	sign := (3 * ((i - 3.5) / 4.8) squared - 1) sign.
 	turn := self mul: (s at: #flow) b: (self c: sign).
@@ -283,6 +331,7 @@ CEPlanetWeatherModel >> regional: i state: s [
 			mul: (s at: #strength)
 			b: (self add: (self c: 6) b: (self mul: regime b: (self c: 14))).
 	force := self mul: force b: (self c: (i even ifTrue: [ -1 ] ifFalse: [ 1 ])).
+	force := self mul: force b: severity.
 	self
 		pressureAt: center
 		amplitude: force
@@ -302,14 +351,14 @@ CEPlanetWeatherModel >> regional: i state: s [
 			b: (self max: (self c: 0) b: (self sub: wet b: (self c: 0.3))).
 	contribution := self
 			mul: contribution
-			b: (self mul: (s at: #strength) b: (self c: 24)).
+			b: (self mul: (self mul: (s at: #strength) b: severity) b: (self c: 24)).
 	s at: #rain put: (self add: (s at: #rain) b: (self mul: contribution b: lee)).
 	s
 		at: #cloud
 		put: (self
 				max: (s at: #cloud)
 				b: (self
-						mul: (self mul: weight b: wet)
+						mul: (self mul: (self mul: weight b: wet) b: severity)
 						b: (self c: (i even ifTrue: [ 1 ] ifFalse: [ 0.3 ])))).
 	sourceDust := self max: (self c: 0) b: (self sub: (self c: 0.5) b: sampleWet).
 	contribution := self
@@ -317,7 +366,9 @@ CEPlanetWeatherModel >> regional: i state: s [
 			b: (self sub: (self c: 1) b: (self smooth: wet)).
 	s
 		at: #dust
-		put: (self add: (s at: #dust) b: (self mul: contribution b: (self c: 2))).
+		put: (self
+				add: (s at: #dust)
+				b: (self mul: (self mul: contribution b: severity) b: (self c: 2))).
 	contribution := self
 			mul: weight
 			b: (self
@@ -326,7 +377,9 @@ CEPlanetWeatherModel >> regional: i state: s [
 					stream: i * 8 + 102).
 	s
 		at: #heat
-		put: (self add: (s at: #heat) b: (self mul: contribution b: (self c: 4)))
+		put: (self
+				add: (s at: #heat)
+				b: (self mul: (self mul: contribution b: (s at: #characterBase)) b: (self c: 4)))
 ]
 
 { #category : 'planet weather' }

@@ -8,7 +8,7 @@ Class {
 	#package : 'BVC-Ecosystem-Weather-Tests'
 }
 
-{ #category : 'conformance' }
+{ #category : 'exporting' }
 CEPlanetWeatherTests class >> exportVectorsTo: directory [
 	| f p cases u inputs curves result model file |
 	directory ensureCreateDirectory.
@@ -58,6 +58,45 @@ CEPlanetWeatherTests class >> exportVectorsTo: directory [
 									inputs: inputs
 									curves: curves);
 						yourself) ].
+
+	#(0 10000)
+		do: [ :character | 
+			u := (f at: 'uniforms') copy.
+			u at: 16 put: character.
+			#(0 3600 86400 172800)
+				do: [ :time | 
+					cases
+						add: (Dictionary new
+								at: 'seconds' put: time;
+								at: 'seed' put: 1729;
+								at: 'uniforms' put: u copy;
+								at: 'outputs'
+									put: (p
+											evaluateAt: time
+											seed: 1729
+											uniforms: u
+											environment: inputs
+											inputs: inputs
+											curves: curves);
+								yourself) ] ].
+	u := (f at: 'uniforms') copy.
+	u at: 49 put: 0.
+	#(0 7200)
+		do: [ :time | 
+			cases
+				add: (Dictionary new
+						at: 'seconds' put: time;
+						at: 'seed' put: 1729;
+						at: 'uniforms' put: u copy;
+						at: 'outputs'
+							put: (p
+									evaluateAt: time
+									seed: 1729
+									uniforms: u
+									environment: inputs
+									inputs: inputs
+									curves: curves);
+						yourself) ].
 	model := CEPlanetWeatherModel definition.
 	(directory / 'program.json') ensureDelete.
 	directory / 'program.json'
@@ -75,10 +114,10 @@ CEPlanetWeatherTests class >> exportVectorsTo: directory [
 	^ cases size * inputs size
 ]
 
-{ #category : 'weather conformance' }
+{ #category : 'fixtures' }
 CEPlanetWeatherTests class >> fixture [
 	| u points p curve |
-	u := Array new: 48 withAll: 0.
+	u := Array new: 49 withAll: 0.
 	u
 		at: 1 put: 10000;
 		at: 2 put: 864000000;
@@ -88,7 +127,9 @@ CEPlanetWeatherTests class >> fixture [
 		at: 11 put: 10000;
 		at: 13 put: 60000;
 		at: 14 put: 10132500;
-		at: 15 put: 6000.
+		at: 15 put: 6000;
+		at: 16 put: 5000;
+		at: 49 put: 10000.
 	points := #(#(10000 0 0 220000 7000 0 0 10000 0 0 7000 220000 4000) #(0 10000 0 220000 7000 0 0 0 10000 0 7000 220000 4000) #(0 0 10000 -200000 3000 0 0 0 0 10000 3000 -200000 0) #(-10000 0 0 220000 1000 0 0 -10000 0 0 1000 220000 0) #(0 -10000 0 220000 7000 10000 0 0 -10000 0 7000 220000 10000) #(0 0 -10000 -200000 3000 0 0 0 0 -10000 3000 -200000 0)).
 	p := CSAnalyticFieldProgram from: CEPlanetWeatherModel definition.
 	curve := p buildCurve: #(#(10000 0 0) #(7071 7071 0) #(0 10000 0)).
@@ -130,6 +171,129 @@ CEPlanetWeatherTests >> testAuthoredStormLifecycle [
 	self assert: start equals: (evaluate value: 0).
 	self assert: end equals: (evaluate value: 10800).
 	self deny: peak = (evaluate value: 3600)
+]
+
+{ #category : 'tests' }
+CEPlanetWeatherTests >> testCharacterChangesExtremeFrequencyAndStrength [
+	| b program u counts totals peaks output |
+	b := CEPlanetWeatherModel new.
+	program := CSAnalyticFieldProgram
+			from: (b
+					finish: (#(0 0.5 1)
+							collect: [ :c | 
+								b
+									extremeAt: b time
+									character: (b c: c)
+									stream: 500 ])).
+	u := self class fixture at: 'uniforms'.
+	counts := #(0 0 0) copy.
+	totals := #(0 0 0) copy.
+	peaks := #(0 0 0) copy.
+	#(1729 33 99 4294969026)
+		do: [ :seed | 
+			0
+				to: 431
+				do: [ :tick | 
+					output := (program
+							evaluateAt: tick * 600
+							seed: seed
+							uniforms: u
+							environment: #()
+							inputs: {#()}
+							curves: #()) first.
+					1
+						to: 3
+						do: [ :i | 
+							| value |
+							value := output at: i.
+							value > 0 ifTrue: [ counts at: i put: (counts at: i) + 1 ].
+							totals at: i put: (totals at: i) + value.
+							peaks at: i put: ((peaks at: i) max: value) ].
+					self assert: output first <= output second.
+					self assert: output second <= output third ] ].
+	self assert: counts first equals: 0.
+	self assert: counts second > 0.
+	self assert: counts third > counts second.
+	self assert: totals third > (totals second * 3).
+	self assert: peaks third > peaks second
+]
+
+{ #category : 'tests' }
+CEPlanetWeatherTests >> testCharacterKeepsReplayAndMoistureConstraints [
+	| f u inputs program |
+	f := self class fixture.
+	program := f at: 'program'.
+	inputs := (f at: 'inputs')
+			collect: [ :row | 
+				| copy |
+				copy := row copy.
+				copy
+					at: 5 put: 0;
+					at: 11 put: 0;
+					at: 13 put: 0.
+				copy ].
+	#(0 5000 10000)
+		do: [ :character | 
+			u := (f at: 'uniforms') copy.
+			u at: 16 put: character.
+			#(0 3600 86400)
+				do: [ :time | 
+					| a b |
+					a := program
+							evaluateAt: time
+							seed: 1729
+							uniforms: u
+							environment: inputs
+							inputs: inputs
+							curves: (f at: 'curves').
+					b := program
+							evaluateAt: time
+							seed: 1729
+							uniforms: u
+							environment: inputs
+							inputs: inputs
+							curves: (f at: 'curves').
+					self assert: a equals: b.
+					a
+						do: [ :row | 
+							self assert: row fifth equals: 0.
+							self assert: row sixth >= 0.
+							self assert: row sixth <= 10000.
+							self assert: row seventh <= 10000 ] ] ]
+]
+
+{ #category : 'tests' }
+CEPlanetWeatherTests >> testDisabledWeatherIsStaticClimate [
+	| f u inputs program |
+	f := self class fixture.
+	u := (f at: 'uniforms') copy.
+	inputs := f at: 'inputs'.
+	program := f at: 'program'.
+	u
+		at: 49 put: 0;
+		at: 16 put: 10000;
+		at: 17 put: 10000;
+		at: 18 put: 0;
+		at: 19 put: 108000000;
+		at: 20 put: 1500000;
+		at: 21 put: 9500;
+		at: 22 put: 10000.
+	#(0 3600 7200 86400)
+		do: [ :time | 
+			| rows |
+			rows := program
+					evaluateAt: time
+					seed: 1729
+					uniforms: u
+					environment: inputs
+					inputs: inputs
+					curves: (f at: 'curves').
+			rows
+				with: inputs
+				do: [ :row :input | 
+					self assert: row first equals: input fourth.
+					self assert: (row copyFrom: 2 to: 7) equals: #(0 0 0 0 0 0).
+					self assert: row eighth equals: (u at: 14) ] ]
 ]
 
 { #category : 'weather conformance' }
