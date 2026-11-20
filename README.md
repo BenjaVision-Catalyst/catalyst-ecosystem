@@ -68,13 +68,13 @@ remain open. This low-cost slice is intended to be measured and extended only
 where believable weather requires more computation.
 
 
-The current domain profile is `planetary-weather-3` over `analytic-field-1`.
+The current domain profile is `planetary-weather-4` over `analytic-field-1`.
 Pressure kernels supply their own analytic tangent gradients. Wind follows those
 gradients with continuous hemisphere-dependent turning and inflow/outflow; no
-Coriolis division becomes singular at the equator. Nine GT tests cover replay,
+Coriolis division becomes singular at the equator. Twelve GT tests cover replay,
 forecast, dry supply, lifecycle, pressure-reference/response, hemisphere and
 high/low circulation, plus bounded extreme forcing. The scalar graph remains
-bounded at 2075 nodes. These rules are an analytic game approximation, not a
+bounded at 2080 nodes. These rules are an analytic game approximation, not a
 conserved atmospheric solver. Older v1 bundles remain frozen reference artifacts.
 
 Weather Character is uniform slot 15 (0–1), with global enable in slot 48.
@@ -83,3 +83,15 @@ as well as ordinary natural strength. Terrain/moisture/biome inputs and explicit
 authored event parameters retain their meaning. Disabled output is static climate
 with reference pressure and no weather contributions. GT tests cover monotone
 extreme windows across four seeds and three days, replay/dry supply, and disable.
+
+Natural weather travel uses uniform 49 (nonnegative multiplier) and uniform 50
+(phase offset in simulation seconds). The default reference fixture is 1 / 0.
+Only circulation and seeded trajectory wandering use the resulting travel time;
+solar heating, regional amplitude/extreme forcing and authored events still use
+simulation time. The UE authoring knob maps Character to travel 1/2/4 at its
+left/middle/right; the advanced multiplier is independently editable. An edit
+anchors the trajectory with `offset += acceptedTime * (oldRate - newRate)`.
+Three added GT tests verify fractional/stopped/faster trajectories, unchanged
+thermal/extreme clocks, anchored full-channel continuity, repeatable forecasts
+and unchanged authored vortex schedules. Exported vectors include all six rates
+and their anchored past/now/future cases (240 point cases total).

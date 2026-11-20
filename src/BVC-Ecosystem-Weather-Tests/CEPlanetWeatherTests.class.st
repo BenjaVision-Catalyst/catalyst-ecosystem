@@ -97,6 +97,28 @@ CEPlanetWeatherTests class >> exportVectorsTo: directory [
 									inputs: inputs
 									curves: curves);
 						yourself) ].
+	#(0 2500 5000 10000 20000 40000)
+		do: [ :rate | 
+			u := (f at: 'uniforms') copy.
+			u
+				at: 50 put: rate;
+				at: 51 put: 7200 * (10000 - rate).
+			#(3600 7200 10800)
+				do: [ :time | 
+					cases
+						add: (Dictionary new
+								at: 'seconds' put: time;
+								at: 'seed' put: 1729;
+								at: 'uniforms' put: u copy;
+								at: 'outputs'
+									put: (p
+											evaluateAt: time
+											seed: 1729
+											uniforms: u
+											environment: inputs
+											inputs: inputs
+											curves: curves);
+								yourself) ] ].
 	model := CEPlanetWeatherModel definition.
 	(directory / 'program.json') ensureDelete.
 	directory / 'program.json'
@@ -117,7 +139,7 @@ CEPlanetWeatherTests class >> exportVectorsTo: directory [
 { #category : 'fixtures' }
 CEPlanetWeatherTests class >> fixture [
 	| u points p curve |
-	u := Array new: 49 withAll: 0.
+	u := Array new: 51 withAll: 0.
 	u
 		at: 1 put: 10000;
 		at: 2 put: 864000000;
@@ -129,7 +151,8 @@ CEPlanetWeatherTests class >> fixture [
 		at: 14 put: 10132500;
 		at: 15 put: 6000;
 		at: 16 put: 5000;
-		at: 49 put: 10000.
+		at: 49 put: 10000;
+		at: 50 put: 10000.
 	points := #(#(10000 0 0 220000 7000 0 0 10000 0 0 7000 220000 4000) #(0 10000 0 220000 7000 0 0 0 10000 0 7000 220000 4000) #(0 0 10000 -200000 3000 0 0 0 0 10000 3000 -200000 0) #(-10000 0 0 220000 1000 0 0 -10000 0 0 1000 220000 0) #(0 -10000 0 220000 7000 10000 0 0 -10000 0 7000 220000 10000) #(0 0 -10000 -200000 3000 0 0 0 0 -10000 3000 -200000 0)).
 	p := CSAnalyticFieldProgram from: CEPlanetWeatherModel definition.
 	curve := p buildCurve: #(#(10000 0 0) #(7071 7071 0) #(0 10000 0)).
@@ -518,4 +541,137 @@ CEPlanetWeatherTests >> testSeedReplayAndForecast [
 				environment: inputs
 				inputs: inputs
 				curves: #())
+]
+
+{ #category : 'weather conformance' }
+CEPlanetWeatherTests >> testTravelChangePreservesPositionAndForecast [
+	| f p u evaluate before predicted |
+	f := self class fixture.
+	p := f at: 'program'.
+	u := (f at: 'uniforms') copy.
+	evaluate := [ :time | 
+		p
+			evaluateAt: time
+			seed: 1729
+			uniforms: u
+			environment: (f at: 'inputs')
+			inputs: (f at: 'inputs')
+			curves: (f at: 'curves') ].
+	before := evaluate value: 7200.
+	#(0 2500 5000 10000 20000 40000)
+		do: [ :rate | 
+			u
+				at: 50 put: rate;
+				at: 51 put: 7200 * (10000 - rate).
+			self assert: (evaluate value: 7200) equals: before.
+			predicted := evaluate value: 10800.
+			evaluate value: 3600.
+			evaluate value: 14400.
+			self assert: (evaluate value: 10800) equals: predicted ]
+]
+
+{ #category : 'weather conformance' }
+CEPlanetWeatherTests >> testTravelMultiplierOnlyScalesTrajectories [
+	| b s program f u reference actual referenceTravel outputs time |
+	b := CEPlanetWeatherModel new.
+	s := b initialState.
+	outputs := {s at: #flow}
+			, ((0 to: 7) collect: [ :i | b regionalTurn: i state: s ])
+			, {s at: #time.
+					s at: #heat.
+					b
+						extremeAt: (s at: #time)
+						character: (s at: #character)
+						stream: 500}.
+	program := CSAnalyticFieldProgram from: (b finish: outputs).
+	f := self class fixture.
+	u := (f at: 'uniforms') copy.
+	time := 7200.
+	reference := program
+			evaluateAt: time
+			seed: 1729
+			uniforms: u
+			environment: (f at: 'inputs')
+			inputs: (f at: 'inputs')
+			curves: (f at: 'curves').
+	#(0 2500 5000 10000 20000 40000)
+		do: [ :rate | 
+			u at: 50 put: rate.
+			actual := program
+					evaluateAt: time
+					seed: 1729
+					uniforms: u
+					environment: (f at: 'inputs')
+					inputs: (f at: 'inputs')
+					curves: (f at: 'curves').
+			u at: 50 put: 10000.
+			referenceTravel := program
+					evaluateAt: time * rate // 10000
+					seed: 1729
+					uniforms: u
+					environment: (f at: 'inputs')
+					inputs: (f at: 'inputs')
+					curves: (f at: 'curves').
+			1
+				to: actual size
+				do: [ :i | 
+					self
+						assert: ((actual at: i) first: 9)
+						equals: ((referenceTravel at: i) first: 9).
+					self
+						assert: ((actual at: i) allButFirst: 9)
+						equals: ((reference at: i) allButFirst: 9) ] ]
+]
+
+{ #category : 'weather conformance' }
+CEPlanetWeatherTests >> testTravelMultiplierPreservesAuthoredSchedules [
+	| f p u evaluate reference |
+	f := self class fixture.
+	p := f at: 'program'.
+	u := (f at: 'uniforms') copy.
+	u
+		at: 1 put: 0;
+		at: 13 put: 0;
+		at: 16 put: 0;
+		at: 17 put: 10000;
+		at: 18 put: 0;
+		at: 19 put: 108000000;
+		at: 20 put: 800000;
+		at: 21 put: 9500;
+		at: 22 put: 9000.
+	evaluate := [ :time | 
+		p
+			evaluateAt: time
+			seed: 1729
+			uniforms: u
+			environment: (f at: 'inputs')
+			inputs: (f at: 'inputs')
+			curves: (f at: 'curves') ].	"Compare the event contribution, since natural cloud/heat/dust still evolve without pressure forcing."
+	#(0 3600 7200 10800)
+		do: [ :time | 
+			u
+				at: 50 put: 10000;
+				at: 17 put: 10000.
+			reference := evaluate value: time.
+			u at: 17 put: 0.
+			reference := reference
+					with: (evaluate value: time)
+					collect: [ :a :b | a with: b collect: [ :x :y | x - y ] ].
+			#(2500 40000)
+				do: [ :rate | 
+					| actual absent |
+					u
+						at: 50 put: rate;
+						at: 17 put: 10000.
+					actual := evaluate value: time.
+					u at: 17 put: 0.
+					absent := evaluate value: time.	"Wind is the authored vortex with regional/prevailing force zero; pressure is likewise independent of travel."
+					1
+						to: actual size
+						do: [ :i | 
+							#(2 3 4 8)
+								do: [ :channel | 
+									self
+										assert: ((actual at: i) at: channel) - ((absent at: i) at: channel)
+										equals: ((reference at: i) at: channel) ] ] ] ]
 ]

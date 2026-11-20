@@ -80,7 +80,7 @@ CEPlanetWeatherModel >> build [
 	definition
 		at: 'channels'
 			put: #('temperatureC' 'windX' 'windY' 'windZ' 'rainMmHour' 'dust' 'cloud' 'pressureHpa');
-		at: 'domain' put: 'planetary-weather-3'.
+		at: 'domain' put: 'planetary-weather-4'.
 	^ definition
 ]
 
@@ -183,7 +183,7 @@ CEPlanetWeatherModel >> extremeAt: time character: character stream: stream [
 
 { #category : 'building' }
 CEPlanetWeatherModel >> initialState [
-	| s p pole u v t lat band tangent amplitude phase solar daily heat character base |
+	| s p pole u v t lat band tangent amplitude phase solar daily heat character base travelTime |
 	s := Dictionary new.
 	character := self
 			min: (self c: 1)
@@ -194,6 +194,9 @@ CEPlanetWeatherModel >> initialState [
 	u := #(6 7 8) collect: [ :i | self uniform: i ].
 	v := #(9 10 11) collect: [ :i | self uniform: i ].
 	t := self time.
+	travelTime := self
+			add: (self mul: t b: (self max: (self c: 0) b: (self uniform: 49)))
+			b: (self uniform: 50).
 	lat := self dot: p with: pole.
 	band := self sub: (self mul: lat b: lat) b: (self c: 0.3333).
 	amplitude := self mul: (self mul: (self uniform: 12) b: (self c: 3)) b: base.
@@ -220,8 +223,10 @@ CEPlanetWeatherModel >> initialState [
 			put: (self min: (self c: 1) b: (self max: (self c: 0) b: (self uniform: 48)));
 		at: #pole put: pole;
 		at: #time put: t;
+		at: #travelTime put: travelTime;
 		at: #strength put: (self uniform: 0);
-		at: #flow put: (self div: t b: (self max: (self c: 60) b: (self uniform: 2)));
+		at: #flow
+			put: (self div: travelTime b: (self max: (self c: 60) b: (self uniform: 2)));
 		at: #normal put: (#(7 8 9) collect: [ :i | self input: i ]);
 		at: #pressure
 			put: (self mul: (self sub: (self c: 0) b: amplitude) b: (self mul: band b: band));
@@ -283,16 +288,7 @@ CEPlanetWeatherModel >> regional: i state: s [
 					stream: i * 8 + 500).
 	latitude := self c: (i - 3.5) / 4.8.
 	sign := (3 * ((i - 3.5) / 4.8) squared - 1) sign.
-	turn := self mul: (s at: #flow) b: (self c: sign).
-	turn := self add: turn b: (self c: i / 8).
-	turn := self
-			add: turn
-			b: (self
-					mul: (self
-							noise: t
-							period: 10800
-							stream: i * 8 + 100)
-					b: (self c: 0.14)).
+	turn := self regionalTurn: i state: s.
 	center := self basisAt: turn latitude: latitude.
 	upstream := self
 			basisAt: (self sub: turn b: (self c: sign * 0.08))
@@ -380,6 +376,23 @@ CEPlanetWeatherModel >> regional: i state: s [
 		put: (self
 				add: (s at: #heat)
 				b: (self mul: (self mul: contribution b: (s at: #characterBase)) b: (self c: 4)))
+]
+
+{ #category : 'building' }
+CEPlanetWeatherModel >> regionalTurn: i state: s [
+	| sign turn |
+	sign := (3 * ((i - 3.5) / 4.8) squared - 1) sign.
+	turn := self mul: (s at: #flow) b: (self c: sign).
+	turn := self add: turn b: (self c: i / 8).
+	turn := self
+			add: turn
+			b: (self
+					mul: (self
+							noise: (s at: #travelTime)
+							period: 10800
+							stream: i * 8 + 100)
+					b: (self c: 0.14)).
+	^ turn
 ]
 
 { #category : 'planet weather' }
