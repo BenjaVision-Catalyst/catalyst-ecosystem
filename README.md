@@ -68,13 +68,13 @@ remain open. This low-cost slice is intended to be measured and extended only
 where believable weather requires more computation.
 
 
-The current domain profile is `planetary-weather-4` over `analytic-field-1`.
+The current domain profile is `planetary-weather-5` over `analytic-field-1`.
 Pressure kernels supply their own analytic tangent gradients. Wind follows those
 gradients with continuous hemisphere-dependent turning and inflow/outflow; no
-Coriolis division becomes singular at the equator. Twelve GT tests cover replay,
+Coriolis division becomes singular at the equator. Fourteen GT tests cover replay,
 forecast, dry supply, lifecycle, pressure-reference/response, hemisphere and
 high/low circulation, plus bounded extreme forcing. The scalar graph remains
-bounded at 2080 nodes. These rules are an analytic game approximation, not a
+bounded at 2087 nodes. These rules are an analytic game approximation, not a
 conserved atmospheric solver. Older v1 bundles remain frozen reference artifacts.
 
 Weather Character is uniform slot 15 (0–1), with global enable in slot 48.
@@ -95,3 +95,13 @@ Three added GT tests verify fractional/stopped/faster trajectories, unchanged
 thermal/extreme clocks, anchored full-channel continuity, repeatable forecasts
 and unchanged authored vortex schedules. Exported vectors include all six rates
 and their anchored past/now/future cases (240 point cases total).
+
+The v5 profile appends `snowMmHour` as channel nine; `rainMmHour` is now liquid
+rain. Both rates use water-equivalent mm/hour. A cubic smoothstep from -1 to +1 C
+partitions total precipitation using the already-computed surface temperature.
+Subtracting snow from total preserves every fixed-point unit. The split is a game
+approximation without a vertical temperature/humidity column or accumulation.
+All 240 previous vector cases conserve total precipitation exactly, with every
+other channel unchanged. Two added GT tests exercise dry/warm/cold/mixed phase,
+continuous conservation through freezing, replay/forecast equality and disable.
+Source and program exports remain GT-authoritative.

@@ -403,6 +403,65 @@ CEPlanetWeatherTests >> testExtremePressureInputsStayBounded [
 				<= 810000 squared
 ]
 
+{ #category : 'weather conformance' }
+CEPlanetWeatherTests >> testPrecipitationPhaseIsSmoothAndConservative [
+	| b p result previous snow warm mixed |
+	b := CEPlanetWeatherModel new.
+	p := CSAnalyticFieldProgram
+			from: (b finish: (b precipitation: (b input: 0) atTemperature: (b input: 1))).
+	previous := 0.
+	-20000
+		to: 20000
+		by: 100
+		do: [ :temperature | 
+			result := (p
+					evaluateAt: 0
+					seed: 1729
+					uniforms: #()
+					environment: #()
+					inputs: {{123456.
+								temperature}}
+					curves: #()) first.
+			self assert: result first + result second equals: 123456.
+			self assert: result first >= previous.
+			self assert: result first >= 0.
+			self assert: result second >= 0.
+			previous := result first ].
+	snow := (p
+			evaluateAt: 0
+			seed: 1729
+			uniforms: #()
+			environment: #()
+			inputs: #(#(123456 -10000))
+			curves: #()) first.
+	warm := (p
+			evaluateAt: 0
+			seed: 1729
+			uniforms: #()
+			environment: #()
+			inputs: #(#(123456 10000))
+			curves: #()) first.
+	mixed := (p
+			evaluateAt: 0
+			seed: 1729
+			uniforms: #()
+			environment: #()
+			inputs: #(#(100000 0))
+			curves: #()) first.
+	self assert: snow equals: #(0 123456).
+	self assert: warm equals: #(123456 0).
+	self assert: mixed equals: #(50000 50000).
+	self
+		assert: (p
+				evaluateAt: 0
+				seed: 1729
+				uniforms: #()
+				environment: #()
+				inputs: #(#(0 -100000) #(0 100000))
+				curves: #())
+		equals: #(#(0 0) #(0 0))
+]
+
 { #category : 'pressure conformance' }
 CEPlanetWeatherTests >> testPressureGradientCirculation [
 	| f u inputs |
@@ -541,6 +600,57 @@ CEPlanetWeatherTests >> testSeedReplayAndForecast [
 				environment: inputs
 				inputs: inputs
 				curves: #())
+]
+
+{ #category : 'weather conformance' }
+CEPlanetWeatherTests >> testSnowAndRainKeepForecastAndDisable [
+	| f p u inputs curves future replay off |
+	f := self class fixture.
+	p := f at: 'program'.
+	u := (f at: 'uniforms') copy.
+	inputs := f at: 'inputs'.
+	curves := f at: 'curves'.
+	future := p
+			evaluateAt: 10800
+			seed: 1729
+			uniforms: u
+			environment: inputs
+			inputs: inputs
+			curves: curves.
+	p
+		evaluateAt: 3600
+		seed: 1729
+		uniforms: u
+		environment: inputs
+		inputs: inputs
+		curves: curves.
+	replay := p
+			evaluateAt: 10800
+			seed: 1729
+			uniforms: u
+			environment: inputs
+			inputs: inputs
+			curves: curves.
+	self assert: future equals: replay.
+	future
+		do: [ :row | 
+			self assert: row size equals: 9.
+			self assert: (row at: 5) >= 0.
+			self assert: (row at: 9) >= 0.
+			row first <= -10000 ifTrue: [ self assert: (row at: 5) equals: 0 ].
+			row first >= 10000 ifTrue: [ self assert: (row at: 9) equals: 0 ] ].
+	u at: 49 put: 0.
+	off := p
+			evaluateAt: 10800
+			seed: 1729
+			uniforms: u
+			environment: inputs
+			inputs: inputs
+			curves: curves.
+	off
+		do: [ :row | 
+			self assert: (row at: 5) equals: 0.
+			self assert: (row at: 9) equals: 0 ]
 ]
 
 { #category : 'weather conformance' }

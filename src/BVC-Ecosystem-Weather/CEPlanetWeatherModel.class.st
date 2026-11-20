@@ -35,7 +35,7 @@ CEPlanetWeatherModel >> basisAt: phase latitude: latitude [
 
 { #category : 'building' }
 CEPlanetWeatherModel >> build [
-	| s slope rain heat dust outputs definition pressure enabled wind cloud |
+	| s slope rain heat dust outputs definition pressure enabled wind cloud precipitation |
 	s := self initialState.
 	0 to: 7 do: [ :i | self regional: i state: s ].
 	0 to: 3 do: [ :i | self event: i state: s ].
@@ -71,16 +71,18 @@ CEPlanetWeatherModel >> build [
 			b: (self
 					add: (self c: 1)
 					b: (self div: (self mul: (s at: #pressure) b: enabled) b: (self c: 1013.25))).
+	precipitation := self precipitation: rain atTemperature: heat.
 	outputs := {heat} , wind
-			, {rain.
+			, {precipitation first.
 					dust.
 					cloud.
-					pressure}.
+					pressure.
+					precipitation second}.
 	definition := self finish: outputs.
 	definition
 		at: 'channels'
-			put: #('temperatureC' 'windX' 'windY' 'windZ' 'rainMmHour' 'dust' 'cloud' 'pressureHpa');
-		at: 'domain' put: 'planetary-weather-4'.
+			put: #('temperatureC' 'windX' 'windY' 'windZ' 'rainMmHour' 'dust' 'cloud' 'pressureHpa' 'snowMmHour');
+		at: 'domain' put: 'planetary-weather-5'.
 	^ definition
 ]
 
@@ -243,6 +245,17 @@ CEPlanetWeatherModel >> initialState [
 		at: #cloud put: (self c: 0);
 		at: #dust put: (self c: 0).
 	^ s
+]
+
+{ #category : 'building' }
+CEPlanetWeatherModel >> precipitation: rate atTemperature: temperature [
+	| total liquidFraction snow |
+	total := self max: (self c: 0) b: rate.	"A lightweight surface-temperature phase approximation, not an atmospheric column solver."
+	liquidFraction := self
+			smooth: (self div: (self add: temperature b: (self c: 1)) b: (self c: 2)).
+	snow := self mul: total b: (self sub: (self c: 1) b: liquidFraction).
+	^ {self sub: total b: snow.
+		snow}
 ]
 
 { #category : 'planet weather' }
