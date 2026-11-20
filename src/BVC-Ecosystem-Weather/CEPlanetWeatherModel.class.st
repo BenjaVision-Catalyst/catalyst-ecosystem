@@ -13,6 +13,11 @@ CEPlanetWeatherModel class >> definition [
 	^ self new build
 ]
 
+{ #category : 'building' }
+CEPlanetWeatherModel class >> frontalDefinition [
+	^ self new buildFrontal
+]
+
 { #category : 'planet weather' }
 CEPlanetWeatherModel >> basisAt: phase latitude: latitude [
 	| co si radial pole u v |
@@ -35,7 +40,7 @@ CEPlanetWeatherModel >> basisAt: phase latitude: latitude [
 
 { #category : 'building' }
 CEPlanetWeatherModel >> build [
-	| s slope rain heat dust outputs definition pressure enabled wind cloud precipitation |
+	| s slope rain heat dust outputs definition pressure enabled wind cloud precipitation airMass |
 	s := self initialState.
 	0 to: 7 do: [ :i | self regional: i state: s ].
 	0 to: 3 do: [ :i | self event: i state: s ].
@@ -71,18 +76,92 @@ CEPlanetWeatherModel >> build [
 			b: (self
 					add: (self c: 1)
 					b: (self div: (self mul: (s at: #pressure) b: enabled) b: (self c: 1013.25))).
+	airMass := self
+			add: heat
+			b: (self mul: (self max: (self c: 0) b: (self input: 6)) b: (self uniform: 51)).
 	precipitation := self precipitation: rain atTemperature: heat.
 	outputs := {heat} , wind
 			, {precipitation first.
 					dust.
 					cloud.
 					pressure.
-					precipitation second}.
+					precipitation second.
+					airMass}.
 	definition := self finish: outputs.
 	definition
 		at: 'channels'
-			put: #('temperatureC' 'windX' 'windY' 'windZ' 'rainMmHour' 'dust' 'cloud' 'pressureHpa' 'snowMmHour');
-		at: 'domain' put: 'planetary-weather-5'.
+			put: #('temperatureC' 'windX' 'windY' 'windZ' 'rainMmHour' 'dust' 'cloud' 'pressureHpa' 'snowMmHour' 'airMassTemperatureC');
+		at: 'domain' put: 'planetary-weather-6-background'.
+	^ definition
+]
+
+{ #category : 'building' }
+CEPlanetWeatherModel >> buildFrontal [
+	| own near behind warm stationary probeGate rate strength enabled wind normal slope total added heat phase cloud dust definition |
+	own := self frontKernelAt: 12.
+	near := self frontKernelAt: 18.
+	behind := self frontKernelAt: 24.
+	probeGate := self smooth: (self div: (self input: 12) b: (self c: 8)).
+	warm := self
+			max: (self mul: (own at: 3) b: (self c: 0.7))
+			b: (self mul: (self mul: (near at: 3) b: (self c: 0.9)) b: probeGate).
+	stationary := self
+			max: (own at: 4)
+			b: (self
+					max: (self mul: (self mul: (near at: 4) b: (self c: 0.5)) b: probeGate)
+					b: (self mul: (self mul: (behind at: 4) b: (self c: 0.5)) b: probeGate)).
+	rate := self add: (self add: (own at: 2) b: warm) b: stationary.
+	enabled := self
+			min: (self c: 1)
+			b: (self max: (self c: 0) b: (self uniform: 48)).
+	strength := self
+			mul: (self uniform: 0)
+			b: (self add: (self c: 0.35) b: (self mul: (self uniform: 15) b: (self c: 1.3))).
+	wind := #(1 2 3) collect: [ :i | self input: i ].
+	normal := #(9 10 11) collect: [ :i | self input: i ].
+	slope := self
+			max: (self c: 0)
+			b: (self sub: (self c: 0) b: (self dot: (self normalized: wind) with: normal)).
+	rate := self
+			mul: rate
+			b: (self
+					mul: enabled
+					b: (self
+							mul: strength
+							b: (self add: (self c: 1) b: (self mul: slope b: (self c: 3))))).
+	total := self add: (self input: 4) b: (self input: 8).
+	added := self
+			max: (self c: 0)
+			b: (self sub: (self min: (self c: 100) b: (self add: total b: rate)) b: total).
+	heat := self sub: (self input: 0) b: (self mul: added b: (self c: 0.04)).
+	phase := self precipitation: (self add: total b: added) atTemperature: heat.
+	cloud := self
+			max: (self input: 6)
+			b: (self mul: (self smooth: (self div: added b: (self c: 3))) b: (self c: 0.85)).
+	dust := self
+			mul: (self input: 5)
+			b: (self sub: (self c: 1) b: (self smooth: (self div: added b: (self c: 5)))).
+	definition := self
+			finish: {heat} , wind
+					, {phase first.
+							dust.
+							cloud.
+							self input: 7.
+							phase second.
+							self mul: own first b: enabled.
+							added}.
+	definition
+		at: 'domain' put: 'planetary-weather-frontal-1';
+		at: 'channels'
+			put: #('temperatureC' 'windX' 'windY' 'windZ' 'rainMmHour' 'dust' 'cloud' 'pressureHpa' 'snowMmHour' 'frontStrength' 'frontalPrecipitationMmHour');
+		at: 'spatialSampling'
+			put: (Dictionary new
+					at: 'neighbours' put: 6;
+					at: 'smoothPasses' put: 3;
+					at: 'searchRings' put: 3;
+					at: 'probeSupportRadiansQ10000' put: 1600;
+					at: 'probeRadiansQ10000' put: #(1200 -1200);
+					yourself).
 	^ definition
 ]
 
@@ -181,6 +260,50 @@ CEPlanetWeatherModel >> extremeAt: time character: character stream: stream [
 					div: (self sub: roll b: (self sub: (self c: 1) b: chance))
 					b: (self c: 0.1)).
 	^ self mul: (self mul: square b: (self c: 4)) b: pulse
+]
+
+{ #category : 'building' }
+CEPlanetWeatherModel >> frontKernelAt: base [
+	| gradient sharp cross moisture confidence cold warm still speed total |
+	gradient := self input: base.
+	sharp := self input: base + 1.
+	cross := self input: base + 3.
+	total := self add: (self input: 4) b: (self input: 8).
+	moisture := self
+			max: (self
+					div: (self add: (self input: base + 4) b: (self input: base + 5))
+					b: (self c: 2))
+			b: (self min: (self c: 0.9) b: (self div: total b: (self c: 20))).
+	moisture := self
+			smooth: (self div: (self sub: moisture b: (self c: 0.3)) b: (self c: 0.5)).
+	confidence := self
+			mul: (self smooth: (self div: (self sub: gradient b: (self c: 8)) b: (self c: 8)))
+			b: (self
+					smooth: (self
+							div: (self
+									sub: (self div: sharp b: (self max: (self c: 0.001) b: gradient))
+									b: (self c: 4))
+							b: (self c: 4))).
+	cold := self smooth: (self div: cross b: (self c: 2)).
+	warm := self
+			smooth: (self div: (self sub: (self c: 0) b: cross) b: (self c: 2)).
+	still := self sub: (self sub: (self c: 1) b: cold) b: warm.
+	speed := self
+			add: (self c: 0.35)
+			b: (self
+					mul: (self c: 0.65)
+					b: (self
+							smooth: (self div: (self max: cross b: (self sub: (self c: 0) b: cross)) b: (self c: 12)))).
+	^ {confidence.
+		self
+			mul: (self mul: (self mul: confidence b: moisture) b: speed)
+			b: (self mul: cold b: (self c: 20)).
+		self
+			mul: (self mul: (self mul: confidence b: moisture) b: speed)
+			b: (self mul: warm b: (self c: 10)).
+		self
+			mul: (self mul: confidence b: moisture)
+			b: (self mul: still b: (self c: 6))}
 ]
 
 { #category : 'building' }

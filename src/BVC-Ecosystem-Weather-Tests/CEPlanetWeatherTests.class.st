@@ -9,6 +9,66 @@ Class {
 }
 
 { #category : 'exporting' }
+CEPlanetWeatherTests class >> exportFrontalVectorsTo: directory [
+	| f p u row cases make result |
+	directory ensureCreateDirectory.
+	f := self frontalFixture.
+	p := f at: 'program'.
+	u := (f at: 'uniforms') copy.
+	row := (f at: 'row') copy.
+	cases := OrderedCollection new.
+	make := [ :name | 
+		cases
+			add: (Dictionary new
+					at: 'name' put: name;
+					at: 'uniforms' put: u copy;
+					at: 'inputs' put: {row copy};
+					at: 'outputs'
+						put: (p
+								evaluateAt: 3600
+								seed: 1729
+								uniforms: u
+								environment: #()
+								inputs: {row}
+								curves: #());
+					yourself) ].
+	make value: 'cold'.
+	#(12 18 24) do: [ :base | row at: base + 4 put: -120000 ].
+	row at: 2 put: -120000.
+	make value: 'warm'.
+	row
+		at: 13 put: 120000;
+		at: 14 put: 0.
+	make value: 'ahead-of-warm'.
+	#(12 18 24)
+		do: [ :base | 
+			row
+				at: base + 5 put: 0;
+				at: base + 6 put: 0 ].
+	make value: 'dry'.
+	row := (f at: 'row') copy.
+	row at: 1 put: -150000.
+	make value: 'snow'.
+	row
+		at: 1 put: 200000;
+		at: 5 put: 950000.
+	make value: 'cap'.
+	row := (f at: 'row') copy.
+	#(12 18 24) do: [ :base | row at: base + 4 put: 0 ].
+	make value: 'stationary'.
+	u at: 49 put: 0.
+	make value: 'disabled'.
+	directory / 'program.json'
+		writeStreamDo: [ :s | s nextPutAll: (STONJSON toString: CEPlanetWeatherModel frontalDefinition) ].
+	result := Dictionary new
+			at: 'cases' put: cases asArray;
+			yourself.
+	directory / 'vectors.json'
+		writeStreamDo: [ :s | s nextPutAll: (STONJSON toString: result) ].
+	^ cases size
+]
+
+{ #category : 'exporting' }
 CEPlanetWeatherTests class >> exportVectorsTo: directory [
 	| f p cases u inputs curves result model file |
 	directory ensureCreateDirectory.
@@ -139,7 +199,7 @@ CEPlanetWeatherTests class >> exportVectorsTo: directory [
 { #category : 'fixtures' }
 CEPlanetWeatherTests class >> fixture [
 	| u points p curve |
-	u := Array new: 51 withAll: 0.
+	u := Array new: 52 withAll: 0.
 	u
 		at: 1 put: 10000;
 		at: 2 put: 864000000;
@@ -152,7 +212,8 @@ CEPlanetWeatherTests class >> fixture [
 		at: 15 put: 6000;
 		at: 16 put: 5000;
 		at: 49 put: 10000;
-		at: 50 put: 10000.
+		at: 50 put: 10000;
+		at: 52 put: 65000.
 	points := #(#(10000 0 0 220000 7000 0 0 10000 0 0 7000 220000 4000) #(0 10000 0 220000 7000 0 0 0 10000 0 7000 220000 4000) #(0 0 10000 -200000 3000 0 0 0 0 10000 3000 -200000 0) #(-10000 0 0 220000 1000 0 0 -10000 0 0 1000 220000 0) #(0 -10000 0 220000 7000 10000 0 0 -10000 0 7000 220000 10000) #(0 0 -10000 -200000 3000 0 0 0 0 -10000 3000 -200000 0)).
 	p := CSAnalyticFieldProgram from: CEPlanetWeatherModel definition.
 	curve := p buildCurve: #(#(10000 0 0) #(7071 7071 0) #(0 10000 0)).
@@ -162,6 +223,62 @@ CEPlanetWeatherTests class >> fixture [
 		at: 'inputs' put: points;
 		at: 'curves' put: {curve};
 		yourself
+]
+
+{ #category : 'fixtures' }
+CEPlanetWeatherTests class >> frontalFixture [
+	| row uniforms program |
+	row := Array new: 30 withAll: 0.
+	row
+		at: 1 put: 200000;
+		at: 2 put: 120000;
+		at: 6 put: 5000;
+		at: 8 put: 10132500;
+		at: 12 put: 10000.
+	#(12 18 24)
+		do: [ :base | 
+			row
+				at: base + 1 put: 800000;
+				at: base + 2 put: 8000000;
+				at: base + 4 put: 120000;
+				at: base + 5 put: 9000;
+				at: base + 6 put: 9000 ].
+	uniforms := (self fixture at: 'uniforms') copy.
+	program := CSAnalyticFieldProgram from: CEPlanetWeatherModel frontalDefinition.
+	^ Dictionary new
+		at: 'program' put: program;
+		at: 'uniforms' put: uniforms;
+		at: 'row' put: row;
+		yourself
+]
+
+{ #category : 'weather conformance' }
+CEPlanetWeatherTests >> testAirMassTemperatureRemovesOnlyLandLapse [
+	| f p u land sea output |
+	f := self class fixture.
+	p := f at: 'program'.
+	u := (f at: 'uniforms') copy.
+	u at: 49 put: 0.
+	land := (f at: 'inputs') first copy.
+	sea := land copy.
+	land
+		at: 4 put: 155000;
+		at: 7 put: 10000.
+	sea
+		at: 4 put: 220000;
+		at: 7 put: -10000.
+	output := p
+			evaluateAt: 3600
+			seed: 1729
+			uniforms: u
+			environment: (f at: 'inputs')
+			inputs: {land.
+					sea}
+			curves: (f at: 'curves').
+	self assert: (output first at: 10) equals: 220000.
+	self assert: (output second at: 10) equals: 220000.
+	self assert: output first first equals: 155000.
+	self assert: output second first equals: 220000
 ]
 
 { #category : 'weather conformance' }
@@ -404,6 +521,111 @@ CEPlanetWeatherTests >> testExtremePressureInputsStayBounded [
 ]
 
 { #category : 'weather conformance' }
+CEPlanetWeatherTests >> testFrontLiftingMoistureAndAdvection [
+	| f p u row evaluate cold warm dry quiet ahead |
+	f := self class frontalFixture.
+	p := f at: 'program'.
+	u := f at: 'uniforms'.
+	row := (f at: 'row') copy.
+	evaluate := [ p
+			evaluateAt: 3600
+			seed: 1729
+			uniforms: u
+			environment: #()
+			inputs: {row}
+			curves: #() ].
+	cold := evaluate value first.
+	self assert: (cold at: 11) equals: 200000.
+	self assert: (cold at: 10) equals: 10000.
+	self assert: (cold at: 5) equals: 200000.
+	#(12 18 24) do: [ :base | row at: base + 4 put: -120000 ].
+	row at: 2 put: -120000.
+	warm := evaluate value first.
+	self assert: (warm at: 11) > 0.
+	self assert: (warm at: 11) < (cold at: 11).
+	row
+		at: 13 put: 120000;
+		at: 14 put: 0.
+	ahead := evaluate value first.
+	self assert: (ahead at: 10) equals: 0.
+	self assert: (ahead at: 11) > 0.
+	#(12 18 24)
+		do: [ :base | 
+			row
+				at: base + 5 put: 0;
+				at: base + 6 put: 0 ].
+	dry := evaluate value first.
+	self assert: (dry at: 11) equals: 0.
+	row := (f at: 'row') copy.
+	#(12 18 24)
+		do: [ :base | 
+			row
+				at: base + 1 put: 0;
+				at: base + 2 put: 0 ].
+	quiet := evaluate value first.
+	self assert: (quiet at: 10) equals: 0.
+	self assert: (quiet at: 11) equals: 0
+]
+
+{ #category : 'weather conformance' }
+CEPlanetWeatherTests >> testFrontalForcingIsSmoothAndRepeatable [
+	| f p u row evaluate before after predicted |
+	f := self class frontalFixture.
+	p := f at: 'program'.
+	u := f at: 'uniforms'.
+	row := (f at: 'row') copy.
+	evaluate := [ :time | 
+		(p
+			evaluateAt: time
+			seed: 1729
+			uniforms: u
+			environment: #()
+			inputs: {row}
+			curves: #()) first ].
+	#(12 18 24) do: [ :base | row at: base + 4 put: -1 ].
+	before := evaluate value: 3600.
+	#(12 18 24) do: [ :base | row at: base + 4 put: 1 ].
+	after := evaluate value: 3600.
+	self assert: ((before at: 11) - (after at: 11)) abs < 500.
+	predicted := evaluate value: 7200.
+	evaluate value: 0.
+	self assert: (evaluate value: 7200) equals: predicted.
+	self assert: (after at: 2) equals: (row at: 2).
+	self assert: (after at: 8) equals: (row at: 8)
+]
+
+{ #category : 'weather conformance' }
+CEPlanetWeatherTests >> testFrontalSnowCapsAndDisable [
+	| f p u row evaluate snow capped off |
+	f := self class frontalFixture.
+	p := f at: 'program'.
+	u := (f at: 'uniforms') copy.
+	row := (f at: 'row') copy.
+	evaluate := [ p
+			evaluateAt: 3600
+			seed: 1729
+			uniforms: u
+			environment: #()
+			inputs: {row}
+			curves: #() ].
+	row at: 1 put: -150000.
+	snow := evaluate value first.
+	self assert: (snow at: 5) equals: 0.
+	self assert: (snow at: 9) equals: 200000.
+	row
+		at: 1 put: 200000;
+		at: 5 put: 950000.
+	capped := evaluate value first.
+	self assert: (capped at: 5) + (capped at: 9) equals: 1000000.
+	self assert: (capped at: 11) equals: 50000.
+	row at: 5 put: 0.
+	u at: 49 put: 0.
+	off := evaluate value first.
+	self assert: (off at: 11) equals: 0.
+	self assert: (off at: 10) equals: 0
+]
+
+{ #category : 'weather conformance' }
 CEPlanetWeatherTests >> testPrecipitationPhaseIsSmoothAndConservative [
 	| b p result previous snow warm mixed |
 	b := CEPlanetWeatherModel new.
@@ -634,7 +856,7 @@ CEPlanetWeatherTests >> testSnowAndRainKeepForecastAndDisable [
 	self assert: future equals: replay.
 	future
 		do: [ :row | 
-			self assert: row size equals: 9.
+			self assert: row size equals: 10.
 			self assert: (row at: 5) >= 0.
 			self assert: (row at: 9) >= 0.
 			row first <= -10000 ifTrue: [ self assert: (row at: 5) equals: 0 ].

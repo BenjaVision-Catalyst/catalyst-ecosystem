@@ -68,13 +68,13 @@ remain open. This low-cost slice is intended to be measured and extended only
 where believable weather requires more computation.
 
 
-The current domain profile is `planetary-weather-5` over `analytic-field-1`.
+The current background profile is `planetary-weather-6-background` over `analytic-field-1`.
 Pressure kernels supply their own analytic tangent gradients. Wind follows those
 gradients with continuous hemisphere-dependent turning and inflow/outflow; no
-Coriolis division becomes singular at the equator. Fourteen GT tests cover replay,
+Coriolis division becomes singular at the equator. Eighteen GT tests cover replay,
 forecast, dry supply, lifecycle, pressure-reference/response, hemisphere and
 high/low circulation, plus bounded extreme forcing. The scalar graph remains
-bounded at 2087 nodes. These rules are an analytic game approximation, not a
+bounded at 2091 nodes. These rules are an analytic game approximation, not a
 conserved atmospheric solver. Older v1 bundles remain frozen reference artifacts.
 
 Weather Character is uniform slot 15 (0–1), with global enable in slot 48.
@@ -105,3 +105,25 @@ All 240 previous vector cases conserve total precipitation exactly, with every
 other channel unchanged. Two added GT tests exercise dry/warm/cold/mixed phase,
 continuous conservation through freezing, replay/forecast equality and disable.
 Source and program exports remain GT-authoritative.
+
+Frontal precipitation uses `CEPlanetWeatherModel frontalDefinition`, profile
+`planetary-weather-frontal-1` (225 nodes), after the 2091-node background stage.
+The background adds air-mass temperature as channel ten and uses uniform 51 for
+positive-land lapse removal; surface temperature and rain/snow still retain
+terrain cooling. The frontal program consumes frozen canonical geometric ridge,
+wind and moisture features, with two smooth spatial probes. Native preprocessing
+owns tangent scalar geometry, while GT owns all front thresholds and lifting,
+moisture/intensity/phase policy. Both execute through Simulator's existing field
+interpreter. Metadata freezes stencil and probe parameters as canonical integers.
+
+Cold fronts produce stronger narrow lifting; warm fronts extend precipitation
+into the colder side. Moist stationary fronts can remain wet; moisture-starved
+fronts remain dry. Rain/snow partition follows the cooled surface temperature,
+with a 100 mm/h total cap. Background rainfall and mission timing are preserved.
+The model is still an analytic game approximation without a conserved moisture
+reservoir or vertical wet-bulb/column physics. Full canonical sampling inputs and
+their order are part of replay identity, independently of the editor camera.
+Four added GT tests cover lifting/advection/moisture, snow/caps/disable, smooth
+forcing/replay and lapse removal. Eight frontal-stage conformance vectors extend
+the 240 background vectors. The displayed front and its rain query the same
+boundary confidence; visual line geometry never drives simulation.
